@@ -42,9 +42,29 @@ private:
 };
 
 class QQmlContext;
+class QQmlOpenMetaObjectType;
 class QQuickLoaderPrivate : public QQuickImplicitSizeItemPrivate, public QQuickItemChangeListener
 {
     Q_DECLARE_PUBLIC(QQuickLoader)
+
+    struct QLoadedState {
+        QUrl source;
+        QQuickItem *item;
+        QObject *object;
+        QQmlStrongJSQObjectReference<QQmlComponent> component;
+        QQmlContext *itemContext;
+        QQuickLoaderIncubator *incubator;
+        QV4::PersistentValue initialPropertyValues;
+        QV4::PersistentValue qmlCallingContext;
+        bool loadingFromSource : 1;
+        bool isCachable : 1;
+    };
+
+    void clearLoadedState();
+    void clearCachedState(QLoadedState& state);
+    void cacheAndClearLoadedState();
+    QQuickLoaderAttached *attached(QQuickItem *item);
+    QQmlOpenMetaObjectType *attachedType();
 
 public:
     QQuickLoaderPrivate();
@@ -54,6 +74,7 @@ public:
     void itemImplicitWidthChanged(QQuickItem *) override;
     void itemImplicitHeightChanged(QQuickItem *) override;
     void clear();
+    void clearCaches();
     void initResize();
     void load();
 
@@ -86,6 +107,11 @@ public:
     // on 32-bit systems, as sizeof(Status) == sizeof(int)
     // and sizeof(int) > remaining padding on 32 bit
     char status;
+
+    bool isCachable : 1;
+    QQmlOpenMetaObjectType *attType;
+    QHash<QString, QLoadedState> cacheSources;
+    QHash<QQmlComponent*, QLoadedState> cacheComponentSources;
 
     void _q_sourceLoaded();
     void _q_updateSize(bool loaderGeometryChanged = true);

@@ -21,6 +21,7 @@ QT_BEGIN_NAMESPACE
 
 class QQuickLoaderPrivate;
 class QQmlV4Function;
+class QQuickLoaderAttached;
 class Q_QUICK_PRIVATE_EXPORT QQuickLoader : public QQuickImplicitSizeItem
 {
     Q_OBJECT
@@ -34,6 +35,7 @@ class Q_QUICK_PRIVATE_EXPORT QQuickLoader : public QQuickImplicitSizeItem
     Q_PROPERTY(bool asynchronous READ asynchronous WRITE setAsynchronous NOTIFY asynchronousChanged)
     QML_NAMED_ELEMENT(Loader)
     QML_ADDED_IN_VERSION(2, 0)
+    QML_ATTACHED(QQuickLoaderAttached)
 
 public:
     QQuickLoader(QQuickItem *parent = nullptr);
@@ -61,6 +63,8 @@ public:
 
     QObject *item() const;
 
+    static QQuickLoaderAttached *qmlAttachedProperties(QObject *);
+
 Q_SIGNALS:
     void itemChanged();
     void activeChanged();
@@ -80,10 +84,41 @@ private:
     void setSource(const QUrl &sourceUrl, bool needsClear);
     void loadFromSource();
     void loadFromSourceComponent();
+    friend class QQuickLoaderAttached;
     Q_DISABLE_COPY(QQuickLoader)
     Q_DECLARE_PRIVATE(QQuickLoader)
     Q_PRIVATE_SLOT(d_func(), void _q_sourceLoaded())
     Q_PRIVATE_SLOT(d_func(), void _q_updateSize())
+};
+
+class QQmlOpenMetaObject;
+class QQuickLoaderAttached : public QObject
+{
+    Q_OBJECT
+
+    Q_PROPERTY(bool isCacheable READ isCacheable WRITE isCacheable NOTIFY cacheableChanged)
+
+public:
+    QQuickLoaderAttached(QObject *parent);
+    ~QQuickLoaderAttached();
+
+    bool isCacheable() const { return m_isCacheable; }
+    void isCacheable(bool st) {
+        if (m_isCacheable != st) {
+            m_isCacheable = st;
+            Q_EMIT cacheableChanged();
+        }
+    }
+
+    QVariant value(const QByteArray &name) const;
+    void setValue(const QByteArray &name, const QVariant &val);
+
+Q_SIGNALS:
+    void cacheableChanged();
+
+private:
+    QQmlOpenMetaObject *m_metaobject;
+    bool m_isCacheable : 1;
 };
 
 QT_END_NAMESPACE

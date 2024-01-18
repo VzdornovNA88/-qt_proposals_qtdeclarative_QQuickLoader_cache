@@ -11,25 +11,55 @@
 #include <private/qqmlcomponent_p.h>
 #include <private/qqmlincubator_p.h>
 
+#include <private/qqmlopenmetaobject_p.h>
+
 QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(lcTransient)
+
+static QQmlOpenMetaObjectType *qQuickLoaderAttachedType = nullptr;
+
+QQuickLoaderAttached::QQuickLoaderAttached(QObject *parent)
+: QObject(parent), m_isCacheable(false)
+{
+    if (qQuickLoaderAttachedType) {
+        m_metaobject = new QQmlOpenMetaObject(this, qQuickLoaderAttachedType);
+        m_metaobject->setCached(true);
+    } else {
+        m_metaobject = new QQmlOpenMetaObject(this);
+    }
+}
+
+QQuickLoaderAttached::~QQuickLoaderAttached()
+{
+}
+
+QVariant QQuickLoaderAttached::value(const QByteArray &name) const
+{
+    return m_metaobject->value(name);
+}
+void QQuickLoaderAttached::setValue(const QByteArray &name, const QVariant &val)
+{
+    m_metaobject->setValue(name, val);
+}
 
 static const QQuickItemPrivate::ChangeTypes watchedChanges
     = QQuickItemPrivate::Geometry | QQuickItemPrivate::ImplicitWidth | QQuickItemPrivate::ImplicitHeight;
 
 QQuickLoaderPrivate::QQuickLoaderPrivate()
     : item(nullptr), object(nullptr), itemContext(nullptr), incubator(nullptr), updatingSize(false),
-      active(true), loadingFromSource(false), asynchronous(false), status(computeStatus())
+      active(true), loadingFromSource(false), asynchronous(false), status(computeStatus()), isCachable(true)
 {
 }
 
 QQuickLoaderPrivate::~QQuickLoaderPrivate()
 {
-    delete itemContext;
-    itemContext = nullptr;
-    delete incubator;
-    disposeInitialPropertyValues();
+    //    delete itemContext;
+    //    itemContext = nullptr;
+    //    delete incubator;
+    //    disposeInitialPropertyValues();
+    clearLoadedState();
+    clearCaches();
 }
 
 void QQuickLoaderPrivate::itemGeometryChanged(QQuickItem *resizeItem, QQuickGeometryChange change,
@@ -53,6 +83,117 @@ void QQuickLoaderPrivate::itemImplicitHeightChanged(QQuickItem *)
 }
 
 void QQuickLoaderPrivate::clear()
+{
+    //    Q_Q(QQuickLoader);
+    //    disposeInitialPropertyValues();
+
+    //    if (incubator)
+    //        incubator->clear();
+
+    //    delete itemContext;
+    //    itemContext = nullptr;
+
+    //    // Prevent any bindings from running while waiting for deletion. Without
+    //    // this we may get transient errors from use of 'parent', for example.
+    //    QQmlContext *context = qmlContext(object);
+    //    if (context)
+    //        QQmlContextData::get(context)->clearContextRecursively();
+
+    //    if (loadingFromSource && component) {
+    //        // disconnect since we deleteLater
+    //        QObject::disconnect(component, SIGNAL(statusChanged(QQmlComponent::Status)),
+    //                q, SLOT(_q_sourceLoaded()));
+    //        QObject::disconnect(component, SIGNAL(progressChanged(qreal)),
+    //                q, SIGNAL(progressChanged()));
+    //        component->deleteLater();
+    //        component.setObject(nullptr, q);
+    //    } else if (component) {
+    //        component.setObject(nullptr, q);
+    //    }
+    //    source = QUrl();
+
+    //    if (item) {
+    //        QQuickItemPrivate *p = QQuickItemPrivate::get(item);
+    //        p->removeItemChangeListener(this, watchedChanges);
+
+    //        // We can't delete immediately because our item may have triggered
+    //        // the Loader to load a different item.
+    //        item->setParentItem(nullptr);
+    //        item->setVisible(false);
+    //        item = nullptr;
+    //    }
+    //    if (object) {
+    //        object->deleteLater();
+    //        object = nullptr;
+    //    }
+
+    /////////////////////////////////////////////////////////////////////////
+    //    using ClearFunction = void(*)(QQuickLoaderPrivate*);
+    //    ClearFunction dispatchTab[2] {
+    //        [](QQuickLoaderPrivate* self) {
+    //            self->clearLoadedState();
+    //        },
+    //        [](QQuickLoaderPrivate* self) {
+    //            self->cacheAndClearLoadedState();
+    //        }
+    //    };
+    //    dispatchTab[ isCachable ]( this );
+
+    //    switch( isCachable ) {
+    //    case false : clearLoadedState(); break;
+    //    case false : cacheAndClearLoadedState(); break;
+
+    if( isCachable )
+        cacheAndClearLoadedState();
+    else
+        clearLoadedState();
+}
+
+void QQuickLoaderPrivate::initResize()
+{
+    if (!item)
+        return;
+    QQuickItemPrivate *p = QQuickItemPrivate::get(item);
+    p->addItemChangeListener(this, watchedChanges);
+    _q_updateSize();
+}
+
+qreal QQuickLoaderPrivate::getImplicitWidth() const
+{
+    Q_Q(const QQuickLoader);
+    // If the Loader has a valid width then Loader has set an explicit width on the
+    // item, and we want the item's implicitWidth.  If the Loader's width has
+    // not been set then its implicitWidth is the width of the item.
+    if (item)
+        return q->widthValid() ? item->implicitWidth() : item->width();
+    return QQuickImplicitSizeItemPrivate::getImplicitWidth();
+}
+
+qreal QQuickLoaderPrivate::getImplicitHeight() const
+{
+    Q_Q(const QQuickLoader);
+    // If the Loader has a valid height then Loader has set an explicit height on the
+    // item, and we want the item's implicitHeight.  If the Loader's height has
+    // not been set then its implicitHeight is the height of the item.
+    if (item)
+        return q->heightValid() ? item->implicitHeight() : item->height();
+    return QQuickImplicitSizeItemPrivate::getImplicitHeight();
+}
+
+void QQuickLoaderPrivate::clearCaches()
+{
+    for( auto& e : cacheSources ) {
+        clearCachedState(e);
+    }
+    cacheSources.clear();
+
+    for( auto& e : cacheComponentSources ) {
+        clearCachedState(e);
+    }
+    cacheComponentSources.clear();
+}
+
+void QQuickLoaderPrivate::clearLoadedState()
 {
     Q_Q(QQuickLoader);
     disposeInitialPropertyValues();
@@ -98,35 +239,111 @@ void QQuickLoaderPrivate::clear()
     }
 }
 
-void QQuickLoaderPrivate::initResize()
+void QQuickLoaderPrivate::clearCachedState(QLoadedState& state)
 {
-    if (!item)
-        return;
-    QQuickItemPrivate *p = QQuickItemPrivate::get(item);
-    p->addItemChangeListener(this, watchedChanges);
-    _q_updateSize();
+    Q_Q(QQuickLoader);
+    state.initialPropertyValues.clear();
+
+    if (state.incubator)
+        state.incubator->clear();
+
+    delete state.itemContext;
+    state.itemContext = nullptr;
+
+    // Prevent any bindings from running while waiting for deletion. Without
+    // this we may get transient errors from use of 'parent', for example.
+    QQmlContext *context = qmlContext(state.object);
+    if (context)
+        QQmlContextData::get(context)->clearContextRecursively();
+
+    if (state.loadingFromSource && state.component) {
+        // disconnect since we deleteLater
+        QObject::disconnect(state.component, SIGNAL(statusChanged(QQmlComponent::Status)),
+                            q, SLOT(_q_sourceLoaded()));
+        QObject::disconnect(state.component, SIGNAL(progressChanged(qreal)),
+                            q, SIGNAL(progressChanged()));
+        state.component->deleteLater();
+        state.component.setObject(nullptr, q);
+    } else if (state.component) {
+        state.component.setObject(nullptr, q);
+    }
+    state.source = QUrl();
+
+    if (state.item) {
+        QQuickItemPrivate *p = QQuickItemPrivate::get(state.item);
+        p->removeItemChangeListener(this, watchedChanges);
+
+        // We can't delete immediately because our item may have triggered
+        // the Loader to load a different item.
+        state.item->setParentItem(nullptr);
+        state.item->setVisible(false);
+        state.item = nullptr;
+    }
+    if (state.object) {
+        state.object->deleteLater();
+        state.object = nullptr;
+    }
 }
 
-qreal QQuickLoaderPrivate::getImplicitWidth() const
+void QQuickLoaderPrivate::cacheAndClearLoadedState()
 {
-    Q_Q(const QQuickLoader);
-    // If the Loader has a valid width then Loader has set an explicit width on the
-    // item, and we want the item's implicitWidth.  If the Loader's width has
-    // not been set then its implicitWidth is the width of the item.
-    if (item)
-        return q->widthValid() ? item->implicitWidth() : item->width();
-    return QQuickImplicitSizeItemPrivate::getImplicitWidth();
+    Q_Q(QQuickLoader);
+    bool isSourceCachable = !source.isEmpty() && source.isValid();
+
+    if( isSourceCachable ) {
+
+        if( item ) item->setVisible( false );
+
+        cacheSources[ source.toString() ] = QLoadedState {
+                source,item,object,component,
+                itemContext,incubator,initialPropertyValues,
+                qmlCallingContext,loadingFromSource,isCachable
+    }; 
+
+        initialPropertyValues.clear();
+        source = QUrl();
+        item = nullptr;
+        object = nullptr;
+        component.setObject(nullptr,q);
+        itemContext = nullptr;
+        incubator = nullptr;
+        loadingFromSource = false;
+//        isCachable = false;
+    }
+    else if( !component.isNull() ) {
+
+        if( item ) item->setVisible( false );
+
+        cacheComponentSources[ component.object() ] = QLoadedState {
+                source,item,object,component,
+                itemContext,incubator,initialPropertyValues,
+                qmlCallingContext,loadingFromSource,isCachable
+    };
+        initialPropertyValues.clear();
+        source = QUrl();
+        item = nullptr;
+        object = nullptr;
+        component.setObject(nullptr,q);
+        itemContext = nullptr;
+        incubator = nullptr;
+        loadingFromSource = false;
+//        isCachable = false;
+    }
 }
 
-qreal QQuickLoaderPrivate::getImplicitHeight() const
+QQuickLoaderAttached *QQuickLoaderPrivate::attached(QQuickItem *item)
 {
-    Q_Q(const QQuickLoader);
-    // If the Loader has a valid height then Loader has set an explicit height on the
-    // item, and we want the item's implicitHeight.  If the Loader's height has
-    // not been set then its implicitHeight is the height of the item.
-    if (item)
-        return q->heightValid() ? item->implicitHeight() : item->height();
-    return QQuickImplicitSizeItemPrivate::getImplicitHeight();
+    return static_cast<QQuickLoaderAttached *>(qmlAttachedPropertiesObject<QQuickLoader>(item, false));
+}
+
+QQmlOpenMetaObjectType *QQuickLoaderPrivate::attachedType()
+{
+    if (!attType) {
+        // pre-create one metatype to share with all attached objects
+        attType = new QQmlOpenMetaObjectType(&QQuickLoaderAttached::staticMetaObject);
+    }
+
+    return attType;
 }
 
 /*!
@@ -276,8 +493,8 @@ QQuickLoader::QQuickLoader(QQuickItem *parent)
 
 QQuickLoader::~QQuickLoader()
 {
-    Q_D(QQuickLoader);
-    d->clear();
+//    Q_D(QQuickLoader);
+//    d->clear();
 }
 
 /*!
@@ -316,6 +533,7 @@ void QQuickLoader::setActive(bool newVal)
         }
     } else {
         // cancel any current incubation
+        d->clearCaches();
         if (d->incubator) {
             d->incubator->clear();
             delete d->itemContext;
@@ -703,18 +921,34 @@ void QQuickLoaderPrivate::_q_sourceLoaded()
     if (!active)
         return;
 
-    QQmlContext *creationContext = component->creationContext();
-    if (!creationContext) creationContext = qmlContext(q);
-    itemContext = new QQmlContext(creationContext);
-    itemContext->setContextObject(q);
 
-    delete incubator;
-    incubator = new QQuickLoaderIncubator(this, asynchronous ? QQmlIncubator::Asynchronous : QQmlIncubator::AsynchronousIfNested);
+    auto state = ( source.isEmpty() || !source.isValid() ) ?
+                cacheComponentSources.take(component.object()) :
+                cacheSources.take(source.toString());
 
-    component->create(*incubator, itemContext);
+    if( !state.component.isNull() ) {
 
-    if (incubator && incubator->status() == QQmlIncubator::Loading)
-        updateStatus();
+        itemContext = state.itemContext;
+        incubator = state.incubator;
+        isCachable = state.isCachable;
+
+        incubatorStateChanged(incubator->status());
+        if( item ) item->setVisible( true );
+    }
+    else {
+        QQmlContext *creationContext = component->creationContext();
+        if (!creationContext) creationContext = qmlContext(q);
+        itemContext = new QQmlContext(creationContext);
+        itemContext->setContextObject(q);
+
+        delete incubator;
+        incubator = new QQuickLoaderIncubator(this, asynchronous ? QQmlIncubator::Asynchronous : QQmlIncubator::AsynchronousIfNested);
+
+        component->create(*incubator, itemContext);
+
+        if (incubator && incubator->status() == QQmlIncubator::Loading)
+            updateStatus();
+    }
 }
 
 /*!
@@ -917,6 +1151,11 @@ QObject *QQuickLoader::item() const
     return d->object;
 }
 
+QQuickLoaderAttached *QQuickLoader::qmlAttachedProperties(QObject *obj)
+{
+    return new QQuickLoaderAttached(obj);
+}
+
 void QQuickLoader::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     Q_D(QQuickLoader);
@@ -1007,7 +1246,13 @@ void QQuickLoaderPrivate::createComponent()
             : QQmlComponent::PreferSynchronous;
     if (QQmlContext *context = qmlContext(q)) {
         if (QQmlEngine *engine = context->engine()) {
-            component.setObject(new QQmlComponent(
+
+            auto state =  cacheSources.value(source.toString());
+
+            if( !state.source.isEmpty() && state.source.isValid() )
+                component.setObject(state.component.object(), q);
+            else
+                component.setObject(new QQmlComponent(
                                     engine, context->resolvedUrl(source), mode, q), q);
             return;
         }
