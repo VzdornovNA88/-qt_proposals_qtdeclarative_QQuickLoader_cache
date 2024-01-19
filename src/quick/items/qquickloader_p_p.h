@@ -42,7 +42,6 @@ private:
 };
 
 class QQmlContext;
-class QQmlOpenMetaObjectType;
 class QQuickLoaderPrivate : public QQuickImplicitSizeItemPrivate, public QQuickItemChangeListener
 {
     Q_DECLARE_PUBLIC(QQuickLoader)
@@ -56,15 +55,12 @@ class QQuickLoaderPrivate : public QQuickImplicitSizeItemPrivate, public QQuickI
         QQuickLoaderIncubator *incubator;
         QV4::PersistentValue initialPropertyValues;
         QV4::PersistentValue qmlCallingContext;
-        bool loadingFromSource : 1;
-        bool isCachable : 1;
     };
 
     void clearLoadedState();
     void clearCachedState(QLoadedState& state);
     void cacheAndClearLoadedState();
     QQuickLoaderAttached *attached(QQuickItem *item);
-    QQmlOpenMetaObjectType *attachedType();
 
 public:
     QQuickLoaderPrivate();
@@ -108,8 +104,7 @@ public:
     // and sizeof(int) > remaining padding on 32 bit
     char status;
 
-    bool isCachable : 1;
-    QQmlOpenMetaObjectType *attType;
+    bool isCacheable : 1;
     QHash<QString, QLoadedState> cacheSources;
     QHash<QQmlComponent*, QLoadedState> cacheComponentSources;
 

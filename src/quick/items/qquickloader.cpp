@@ -11,36 +11,17 @@
 #include <private/qqmlcomponent_p.h>
 #include <private/qqmlincubator_p.h>
 
-#include <private/qqmlopenmetaobject_p.h>
-
 QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(lcTransient)
 
-static QQmlOpenMetaObjectType *qQuickLoaderAttachedType = nullptr;
-
 QQuickLoaderAttached::QQuickLoaderAttached(QObject *parent)
 : QObject(parent), m_isCacheable(false)
 {
-    if (qQuickLoaderAttachedType) {
-        m_metaobject = new QQmlOpenMetaObject(this, qQuickLoaderAttachedType);
-        m_metaobject->setCached(true);
-    } else {
-        m_metaobject = new QQmlOpenMetaObject(this);
-    }
 }
 
 QQuickLoaderAttached::~QQuickLoaderAttached()
 {
-}
-
-QVariant QQuickLoaderAttached::value(const QByteArray &name) const
-{
-    return m_metaobject->value(name);
-}
-void QQuickLoaderAttached::setValue(const QByteArray &name, const QVariant &val)
-{
-    m_metaobject->setValue(name, val);
 }
 
 static const QQuickItemPrivate::ChangeTypes watchedChanges
@@ -48,7 +29,7 @@ static const QQuickItemPrivate::ChangeTypes watchedChanges
 
 QQuickLoaderPrivate::QQuickLoaderPrivate()
     : item(nullptr), object(nullptr), itemContext(nullptr), incubator(nullptr), updatingSize(false),
-      active(true), loadingFromSource(false), asynchronous(false), status(computeStatus()), isCachable(true)
+      active(true), loadingFromSource(false), asynchronous(false), status(computeStatus()), isCacheable(true)
 {
 }
 
@@ -143,7 +124,7 @@ void QQuickLoaderPrivate::clear()
     //    case false : clearLoadedState(); break;
     //    case false : cacheAndClearLoadedState(); break;
 
-    if( isCachable )
+    if( isCacheable )
         cacheAndClearLoadedState();
     else
         clearLoadedState();
@@ -204,6 +185,8 @@ void QQuickLoaderPrivate::clearLoadedState()
     delete itemContext;
     itemContext = nullptr;
 
+    isCacheable = false;
+
     // Prevent any bindings from running while waiting for deletion. Without
     // this we may get transient errors from use of 'parent', for example.
     QQmlContext *context = qmlContext(object);
@@ -256,7 +239,7 @@ void QQuickLoaderPrivate::clearCachedState(QLoadedState& state)
     if (context)
         QQmlContextData::get(context)->clearContextRecursively();
 
-    if (state.loadingFromSource && state.component) {
+    if (state.source.isValid() && !state.source.isEmpty() && state.component) {
         // disconnect since we deleteLater
         QObject::disconnect(state.component, SIGNAL(statusChanged(QQmlComponent::Status)),
                             q, SLOT(_q_sourceLoaded()));
@@ -297,7 +280,7 @@ void QQuickLoaderPrivate::cacheAndClearLoadedState()
         cacheSources[ source.toString() ] = QLoadedState {
                 source,item,object,component,
                 itemContext,incubator,initialPropertyValues,
-                qmlCallingContext,loadingFromSource,isCachable
+                qmlCallingContext
     }; 
 
         initialPropertyValues.clear();
@@ -308,7 +291,7 @@ void QQuickLoaderPrivate::cacheAndClearLoadedState()
         itemContext = nullptr;
         incubator = nullptr;
         loadingFromSource = false;
-//        isCachable = false;
+        isCacheable = false;
     }
     else if( !component.isNull() ) {
 
@@ -317,7 +300,7 @@ void QQuickLoaderPrivate::cacheAndClearLoadedState()
         cacheComponentSources[ component.object() ] = QLoadedState {
                 source,item,object,component,
                 itemContext,incubator,initialPropertyValues,
-                qmlCallingContext,loadingFromSource,isCachable
+                qmlCallingContext
     };
         initialPropertyValues.clear();
         source = QUrl();
@@ -327,7 +310,7 @@ void QQuickLoaderPrivate::cacheAndClearLoadedState()
         itemContext = nullptr;
         incubator = nullptr;
         loadingFromSource = false;
-//        isCachable = false;
+        isCacheable = false;
     }
 }
 
@@ -336,15 +319,6 @@ QQuickLoaderAttached *QQuickLoaderPrivate::attached(QQuickItem *item)
     return static_cast<QQuickLoaderAttached *>(qmlAttachedPropertiesObject<QQuickLoader>(item, false));
 }
 
-QQmlOpenMetaObjectType *QQuickLoaderPrivate::attachedType()
-{
-    if (!attType) {
-        // pre-create one metatype to share with all attached objects
-        attType = new QQmlOpenMetaObjectType(&QQuickLoaderAttached::staticMetaObject);
-    }
-
-    return attType;
-}
 
 /*!
     \qmltype Loader
@@ -879,6 +853,9 @@ void QQuickLoaderPrivate::incubatorStateChanged(QQmlIncubator::Status status)
                 window->setTransientParent(q->window());
             }
         }
+        else if (auto propertyAttached = attached(item)) {
+            isCacheable = propertyAttached->isCacheable();
+        }
         emit q->itemChanged();
         initResize();
         incubator->clear();
@@ -930,7 +907,6 @@ void QQuickLoaderPrivate::_q_sourceLoaded()
 
         itemContext = state.itemContext;
         incubator = state.incubator;
-        isCachable = state.isCachable;
 
         incubatorStateChanged(incubator->status());
         if( item ) item->setVisible( true );

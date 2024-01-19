@@ -110,14 +110,10 @@ public:
         }
     }
 
-    QVariant value(const QByteArray &name) const;
-    void setValue(const QByteArray &name, const QVariant &val);
-
 Q_SIGNALS:
     void cacheableChanged();
 
 private:
-    QQmlOpenMetaObject *m_metaobject;
     bool m_isCacheable : 1;
 };
 
